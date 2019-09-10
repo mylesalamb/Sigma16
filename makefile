@@ -6,7 +6,7 @@ OBJ = $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SRC))
 CC = gcc
 CCFLAGS = -O2
 HEADERS = -Iinclude
-EXEC = Sigma_emulator
+EXEC = sigma16
 LIB = -lncurses
 $(EXEC): $(OBJ)
 	$(CC) $(CCFLAGS) $(HEADERS) -o $(EXEC) $(OBJ)
