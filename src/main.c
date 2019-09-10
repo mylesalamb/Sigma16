@@ -46,11 +46,11 @@ int main(int argc, char * const argv[]){
 
 	FILE * fp = fopen(filename,"r");
 
-	if(fp == NULL){
+	if(fp == NULL)
 		goto err;
 
-	
-
+	printf("Starting Parser...\n");
+	getobjcode(fp);
 
 	return 0;
 
@@ -58,5 +58,4 @@ int main(int argc, char * const argv[]){
 		fprintf(stderr,"Invalid args\nUSAGE: Sigma16 -f [Infile]\n"
 			"check format and that file exists\n");
 		return 1;
-}
 }

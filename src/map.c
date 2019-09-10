@@ -80,12 +80,14 @@ int hashmap_add(hashmap_t * map, void * key, void * value){
 	
 	//calculate hash and fit to table
 	int hash = (map->hashfunc)(key)%(map->tableSize);
-
+	printf("computed hash in hash add\n");
 	//catch if there are no nodes in the chain
 	if(((map->table))[hash] == NULL){
 		((map->table))[hash] = node_init(key,value,NULL);
 		return 1;
-	}	
+	}
+
+	printf("collision\n");
 
 	node_t * cursor = ((map->table))[hash];
 
@@ -94,11 +96,16 @@ int hashmap_add(hashmap_t * map, void * key, void * value){
 		if((map->comparator)(cursor->key,key)==0)
 			return 0;
 
+		if(cursor->next == NULL){
+			cursor->next = node_init(key,value,NULL);
+			return 1;
+		}
+
 		cursor = cursor->next;
 
-	}while(cursor->next != NULL);
+	}while(1);
 
-	cursor->next = node_init(key,value,NULL);
+	
 }
 
 
@@ -183,6 +190,8 @@ void hashmap_free(hashmap_t * arg){
 Prints a hashmap to stdouts
 */
 void hashmap_print(hashmap_t * arg){
+
+	printf("hash print called \n");
 
 	for(size_t i = 0; i < arg->tableSize; i++){
 
