@@ -12,13 +12,13 @@ so we can retain the 'code as data' behaviour see (strange.asm.txt)
 #include<ctype.h>
 #include<string.h>
 #include"map.h"
-#include"parser.h"
+#include"assembler.h"
 
 #define BUFFSIZE 200
 #define MEMSIZE 65536
 #define OP_BUCKETS 10
-#define RRR_MASK 0b0111111111111111
-#define RX_MASK
+#define RRR_MASK  0b111100000000
+#define isrrr(x) ((RRR_MASK & x) == 0)
 
  
 
@@ -51,7 +51,6 @@ uint16_t * getobjcode(FILE * fp){
 
 	while(fgets(buffer,BUFFSIZE,fp) != NULL ){
 
-		printf("new buffer\n");
 
 		int lcursor = 0;
 		int rcursor = 0;
@@ -87,7 +86,6 @@ uint16_t * getobjcode(FILE * fp){
 			//check if there is anymore stuff on the line
 			lcursor= rcursor;
 			lcursor = getnexttoken(buffer,lcursor);
-			printf("valid label added\n");
 			if(lcursor==-1)
 				continue;
 
@@ -103,11 +101,30 @@ uint16_t * getobjcode(FILE * fp){
 		
 
 		strslice(buffer,op,lcursor,rcursor);
-		void * opcode = hashmap_get(codebook,op);
-
+		uint16_t * opcode = (uint16_t*)hashmap_get(codebook,op);
 		if(opcode == NULL){
 			errstring = "instrction is not valid";
 			goto err;
+		}
+
+		uint16_t opval = *opcode;
+
+		lcursor = getnexttoken(buffer,rcursor);
+		if(lcursor==-1){
+			errstring = "No/bad operands";
+			goto err;
+
+		}
+
+		//get args and add them into the 16bit word
+
+		if(isrrr(*opcode)){
+			uint16_t args = getrrrargs(buffer,lcursor);
+			opval ^= args; 
+			mem[ip++] = opval;
+			}
+		else{
+			//printf("instruction is not rrr\n");
 		}
 
 
@@ -124,6 +141,49 @@ uint16_t * getobjcode(FILE * fp){
 
 }
 
+uint16_t getrrrargs(char * buffer,int left){
+
+	uint16_t args = 0;
+
+	for(int i = 0; i < 3; i++){
+		
+		int reg = 0;
+
+		if(buffer[left] != 'r' && buffer[left] != 'R' ){
+			printf("bad args not buffer %c\n",buffer[left]);
+			exit(0);
+		}
+
+		left++; //skip r
+
+		//get the index of the register to be accessed
+		while(buffer[left] != ',' && buffer[left] != '\0' && buffer[left] != '\n'){
+			
+			if(buffer[left] > '9' || buffer[left] < '0'){
+				printf("bad args\n");
+				exit(0);
+			}
+
+			reg *= 10;
+			reg += buffer[left] - '0';
+			left++;
+		}
+
+		if(reg > 15){
+			printf("reg index out of range\n");
+			exit(0);
+		}
+
+		args = args << 4;
+		args = args ^ reg;
+
+		left++; //skip comma
+	}
+
+	return args;
+
+}
+
 
 /*
 Utility to trim of whitespace from between parts of line
@@ -133,7 +193,7 @@ int getnexttoken(char * str, int i){
 
 	while(isspace(str[i])){
 			i++;
-		} //trim of whitespace from the start of the line
+		} //trim of whitespace from the start of i
 
 	//have we reached the end of a line?
 	return (str[i]=='\n' || str[i]==';'||str[i]=='\0') ? -1 : i;
@@ -201,8 +261,6 @@ for use in the hash map
 int strcomp(void * arga, void * argb ){
 	char * stra = (char *)arga;
 	char * strb = (char *)argb;
-
-	printf("\"%s\" vs \"%s\"\n",stra,strb );
 
 	while(*stra != '\0' && *strb != '\0' && *stra == *strb){
 		stra++;
@@ -351,7 +409,7 @@ static hashmap_t * opmapinit(){
 	opchar = (char *)malloc(sizeof(char)*6);
 	strcpy(opchar,"jumpf");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
-	*opcode = 0xb000;
+	*opcode = 0xf600;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*6);

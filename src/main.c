@@ -11,7 +11,7 @@ receives a singular arguement from teh user either flagged with -f or by itself
 #include<string.h>
 
 
-#include"parser.h"
+#include"assembler.h"
 
 int main(int argc, char * const argv[]){
 	char flag;
