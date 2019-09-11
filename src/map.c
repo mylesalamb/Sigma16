@@ -113,7 +113,7 @@ void * hashmap_get(hashmap_t * map, void * key){
 
 	while(cursor != NULL){
 		if((map->comparator)(cursor->key,key)==0)
-			return cursor->key;
+			return cursor->value;
 
 		cursor = cursor->next;
 	}

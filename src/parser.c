@@ -16,15 +16,16 @@ so we can retain the 'code as data' behaviour see (strange.asm.txt)
 
 #define BUFFSIZE 200
 #define MEMSIZE 65536
-#define BUCKETS 10
+#define OP_BUCKETS 10
+#define RRR_MASK 0b0111111111111111
+#define RX_MASK
 
  
 
 typedef struct statement {
 
-	char * label;
 	uint16_t opcode;
-	char ** args;
+	char * args;
 
 
 } statement_t;
@@ -43,35 +44,30 @@ uint16_t * getobjcode(FILE * fp){
 	char * buffer = (char*)malloc(sizeof(char)*BUFFSIZE);
 	uint16_t * mem = (uint16_t*)malloc(sizeof(uint16_t)*MEMSIZE);
 	
+	char * op;
 	char * errstring;
 	int line = 0;
-
-	//tokenize the input into statement_t types
+	int ip = 0;
 
 	while(fgets(buffer,BUFFSIZE,fp) != NULL ){
-		int cursor = 0; //how far we are in parsing the current instruction
+
+		printf("new buffer\n");
+
 		int lcursor = 0;
 		int rcursor = 0;
-
 		line++;
 
-
-
-		while(isspace(buffer[cursor])){
-			cursor++;
-		} //trim of whitespace from the start of the line
-
-		//comment or blank line
-		if(buffer[cursor]=='\n' || buffer[cursor]==';')
+		//blank or comment line
+		lcursor = getnexttoken(buffer,lcursor);
+		if(lcursor==-1)
 			continue;
-		
 
 		//there is a label on this line
-		if(!cursor){
+		if(lcursor==0){
 
-			rcursor = lcursor = cursor;
+			rcursor = lcursor;
 
-			while( !isspace(buffer[rcursor] ) && buffer[rcursor] != '\n' ){
+			while( !isspace(buffer[rcursor] )){
 				rcursor++;
 			}
 
@@ -79,13 +75,42 @@ uint16_t * getobjcode(FILE * fp){
 				errstring = "Label is not valid";
 				goto err;
 			}
-
+			
 			//store in our codebook to resolve references later
 		 	int len = rcursor - lcursor;
 			char * label = (char *)malloc(sizeof(char)*len+1);
 			strslice(buffer,label,lcursor,rcursor);
+			uint16_t * ref = (uint16_t *)malloc(sizeof(uint16_t));
+			*ref = ip;
+			hashmap_add(labelresolver,label,ref);
+			
+			//check if there is anymore stuff on the line
+			lcursor= rcursor;
+			lcursor = getnexttoken(buffer,lcursor);
+			printf("valid label added\n");
+			if(lcursor==-1)
+				continue;
 
 		}
+
+		rcursor = lcursor;
+
+		while(isalpha(buffer[rcursor++]))
+			;
+
+		int len = rcursor - lcursor;
+		op = (char*)malloc(sizeof(char)*len);
+		
+
+		strslice(buffer,op,lcursor,rcursor);
+		void * opcode = hashmap_get(codebook,op);
+
+		if(opcode == NULL){
+			errstring = "instrction is not valid";
+			goto err;
+		}
+
+
 
 	}
 
@@ -101,19 +126,38 @@ uint16_t * getobjcode(FILE * fp){
 
 
 /*
+Utility to trim of whitespace from between parts of line
+returns -1 if end of line or comment is reached
+*/
+int getnexttoken(char * str, int i){
+
+	while(isspace(str[i])){
+			i++;
+		} //trim of whitespace from the start of the line
+
+	//have we reached the end of a line?
+	return (str[i]=='\n' || str[i]==';'||str[i]=='\0') ? -1 : i;
+		
+}
+
+
+/*
 Copies characters from src to dest within the range left - right
 same behaviour as python
 dest = src[left:right]
 */
 void strslice(char * src, char * dest, int left, int right){
 
-	for(int i = left; i < right; i++)
-		dest[i] = src[i];
+	for(int i = left,j=0; i < right; i++,j++)
+		dest[j] = src[i];
 
-	dest[right-left] =  '\0';
+	dest[right-left-1] =  '\0';
 
 
 }
+
+
+
 
 /*
 Returns whether the identifier str[left:right] is valid
@@ -158,6 +202,8 @@ int strcomp(void * arga, void * argb ){
 	char * stra = (char *)arga;
 	char * strb = (char *)argb;
 
+	printf("\"%s\" vs \"%s\"\n",stra,strb );
+
 	while(*stra != '\0' && *strb != '\0' && *stra == *strb){
 		stra++;
 		strb++;
@@ -178,7 +224,7 @@ static hashmap_t * opmapinit(){
 	char * opchar;
 	uint16_t * opcode;
 
-	hashmap_t * mapping = hashmap_init(BUCKETS,&strhash,&strcomp);
+	hashmap_t * mapping = hashmap_init(OP_BUCKETS,&strhash,&strcomp);
 
 	int status;
 
@@ -187,79 +233,79 @@ static hashmap_t * opmapinit(){
 	//RRR instructions
 
 	opchar = (char *)malloc(sizeof(char)*4);
-	opchar = "add";
+	strcpy(opchar,"add");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0x0000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*4);
-	opchar = "sub";
+	strcpy(opchar,"sub");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0x1000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*4);
-	opchar = "mul";
+	strcpy(opchar,"mul");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0x2000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*4);
-	opchar = "div";
+	strcpy(opchar,"div");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0x3000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*6);
-	opchar = "cmplt";
+	strcpy(opchar,"cmplt");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0x4000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*6);
-	opchar = "cmpeq";
+	strcpy(opchar,"cmpeq");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0x5000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*6);
-	opchar = "cmpgt";
+	strcpy(opchar,"cmpgt");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0x6000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*4);
-	opchar = "cmp";
+	strcpy(opchar,"cmp");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0x7000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*4);
-	opchar = "inv";
+	strcpy(opchar,"inv");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0x8000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*4);
-	opchar = "and";
+	strcpy(opchar,"and");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0x9000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*3);
-	opchar = "or";
+	strcpy(opchar,"or");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xa000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*4);
-	opchar = "xor";
+	strcpy(opchar,"xor");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xb000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*5);
-	opchar = "trap";
+	strcpy(opchar,"trap");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xd000;
 	hashmap_add(mapping,opchar,opcode);
@@ -267,55 +313,55 @@ static hashmap_t * opmapinit(){
 	//RX instructions
 
 	opchar = (char *)malloc(sizeof(char)*4);
-	opchar = "lea";
+	strcpy(opchar,"lea");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xf000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*5);
-	opchar = "load";
+	strcpy(opchar,"load");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xf100;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*6);
-	opchar = "store";
+	strcpy(opchar,"store");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xf200;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*5);
-	opchar = "jump";
+	strcpy(opchar,"jump");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xf300;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*7);
-	opchar = "jumpc0";
+	strcpy(opchar,"jumpco");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xf400;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*7);
-	opchar = "jumpc1";
+	strcpy(opchar,"jumpc1");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xf500;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*6);
-	opchar = "jumpf";
+	strcpy(opchar,"jumpf");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xb000;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*6);
-	opchar = "jumpt";
+	strcpy(opchar,"jumpt");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xf700;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*4);
-	opchar = "jal";
+	strcpy(opchar,"jal");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
 	*opcode = 0xf800;
 	hashmap_add(mapping,opchar,opcode);
