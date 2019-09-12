@@ -11,28 +11,21 @@ so we can retain the 'code as data' behaviour see (strange.asm.txt)
 #include<stdlib.h>
 #include<ctype.h>
 #include<string.h>
+#include<stdbool.h>
 #include"map.h"
 #include"assembler.h"
 
 #define BUFFSIZE 200
 #define MEMSIZE 65536
 #define OP_BUCKETS 10
-#define RRR_MASK  0b111100000000
-#define isrrr(x) ((RRR_MASK & x) == 0)
-
- 
-
-typedef struct statement {
-
-	uint16_t opcode;
-	char * args;
-
-
-} statement_t;
+#define isrrr(x) ( (0xf000 & x) <= 0xe000)
+#define isrx(x) ( (0xf000) & x == 0xf000 )
 
 /*
 parses a sigma16 asm file returning an array of
 16bit integers resolving references to labels
+
+returns: a 2^16 array of 16bit opcodes corresponding to the assembler input
 
 
 */
@@ -49,8 +42,7 @@ uint16_t * getobjcode(FILE * fp){
 	int line = 0;
 	int ip = 0;
 
-	while(fgets(buffer,BUFFSIZE,fp) != NULL ){
-
+	while(fgets(buffer,BUFFSIZE,fp) != NULL){
 
 		int lcursor = 0;
 		int rcursor = 0;
@@ -58,6 +50,7 @@ uint16_t * getobjcode(FILE * fp){
 
 		//blank or comment line
 		lcursor = getnexttoken(buffer,lcursor);
+		printf("%d\n",lcursor );
 		if(lcursor==-1)
 			continue;
 
@@ -121,10 +114,11 @@ uint16_t * getobjcode(FILE * fp){
 		if(isrrr(*opcode)){
 			uint16_t args = getrrrargs(buffer,lcursor);
 			opval ^= args; 
+			printf("%.4x\n",opval );
 			mem[ip++] = opval;
 			}
 		else{
-			//printf("instruction is not rrr\n");
+			printf("instruction is rx i dont know what to do\n");
 		}
 
 
@@ -141,42 +135,50 @@ uint16_t * getobjcode(FILE * fp){
 
 }
 
+
+rxarg_t getrxargs(char * buffer, int left){
+	rxarg_t ret = {0x0000,0x0000,false};
+
+	int reg = getnextreg(buffer,&left);
+	ret.reg = ret.reg << 4
+	ret.reg ^= reg;
+
+	if(buffer[left] != ','){
+		printf("bad args\n");
+		exit(0);
+	}
+
+	left++;
+	int right = left;
+	while(buffer[right] != '[' && buffer[right] != '\0')
+		right++;
+
+	if(buffer[right] == '\0'){
+		printf("bad args\n");
+		exit(0);
+	}
+
+	if(isvalidid(buffer,left,right))
+
+
+	
+
+	ret.reg = ret.reg << 4
+	return ret;
+
+}
+
+
+
 uint16_t getrrrargs(char * buffer,int left){
 
 	uint16_t args = 0;
 
 	for(int i = 0; i < 3; i++){
 		
-		int reg = 0;
-
-		if(buffer[left] != 'r' && buffer[left] != 'R' ){
-			printf("bad args not buffer %c\n",buffer[left]);
-			exit(0);
-		}
-
-		left++; //skip r
-
-		//get the index of the register to be accessed
-		while(buffer[left] != ',' && buffer[left] != '\0' && buffer[left] != '\n'){
-			
-			if(buffer[left] > '9' || buffer[left] < '0'){
-				printf("bad args\n");
-				exit(0);
-			}
-
-			reg *= 10;
-			reg += buffer[left] - '0';
-			left++;
-		}
-
-		if(reg > 15){
-			printf("reg index out of range\n");
-			exit(0);
-		}
-
+		int reg = getnextreg(buffer,&left);
 		args = args << 4;
 		args = args ^ reg;
-
 		left++; //skip comma
 	}
 
@@ -186,14 +188,51 @@ uint16_t getrrrargs(char * buffer,int left){
 
 
 /*
+gets the next register in the form 'rxx | Rxx'
+and returns as an integer, modifies the pointer in the
+buffer up to the first character that is not an integer
+exits if the register is not of the correct form
+*/
+int getnextreg(char * buffer, int * left){
+
+	if(buffer[*left] != 'r' && buffer[*left] == 'R'){
+		printf("bad args in reg parser\n");
+		exit(0);
+	}
+
+	(*left)++; //skip r
+
+	int reg = 0;
+
+	if(isdigit(buffer[*left])){
+		reg += buffer[*left] - '0';
+	}
+
+	(*left)++;
+
+	if(isdigit(buffer[*left])){
+		reg *= 10;
+		reg += buffer[*left] - '0';
+		(*left++);
+	}
+
+	if(reg > 15){
+			printf("bad args, not register number oob");
+			exit(0);
+	}
+
+	return reg;
+}
+
+
+/*
 Utility to trim of whitespace from between parts of line
 returns -1 if end of line or comment is reached
 */
 int getnexttoken(char * str, int i){
 
-	while(isspace(str[i])){
-			i++;
-		} //trim of whitespace from the start of i
+	while(isspace(str[i]))
+		i++; //trim of whitespace from the start of i
 
 	//have we reached the end of a line?
 	return (str[i]=='\n' || str[i]==';'||str[i]=='\0') ? -1 : i;
@@ -379,49 +418,49 @@ static hashmap_t * opmapinit(){
 	opchar = (char *)malloc(sizeof(char)*5);
 	strcpy(opchar,"load");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
-	*opcode = 0xf100;
+	*opcode = 0xf001;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*6);
 	strcpy(opchar,"store");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
-	*opcode = 0xf200;
+	*opcode = 0xf002;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*5);
 	strcpy(opchar,"jump");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
-	*opcode = 0xf300;
+	*opcode = 0xf003;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*7);
 	strcpy(opchar,"jumpco");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
-	*opcode = 0xf400;
+	*opcode = 0xf004;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*7);
 	strcpy(opchar,"jumpc1");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
-	*opcode = 0xf500;
+	*opcode = 0xf005;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*6);
 	strcpy(opchar,"jumpf");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
-	*opcode = 0xf600;
+	*opcode = 0xf006;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*6);
 	strcpy(opchar,"jumpt");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
-	*opcode = 0xf700;
+	*opcode = 0xf007;
 	hashmap_add(mapping,opchar,opcode);
 
 	opchar = (char *)malloc(sizeof(char)*4);
 	strcpy(opchar,"jal");
 	opcode =(uint16_t*)malloc(sizeof(uint16_t));
-	*opcode = 0xf800;
+	*opcode = 0xf008;
 	hashmap_add(mapping,opchar,opcode);
 
 	//EX instructions will be implemented later
