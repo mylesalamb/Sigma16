@@ -4,6 +4,9 @@
 #include<stdbool.h>
 #include"map.h"
 
+#define isrrr(x) ( (0xf000 & x) <= 0xe000)
+#define isrx(x) ( (0xf000) & x == 0xf000 )
+
 	typedef struct rxarg{
 		uint16_t reg;
 		uint16_t mem;

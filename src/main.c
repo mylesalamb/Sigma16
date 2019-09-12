@@ -10,8 +10,7 @@ receives a singular arguement from teh user either flagged with -f or by itself
 #include<unistd.h>
 #include<string.h>
 
-
-#include"assembler.h"
+#include"emulator.h"
 
 int main(int argc, char * const argv[]){
 	char flag;
@@ -49,8 +48,7 @@ int main(int argc, char * const argv[]){
 	if(fp == NULL)
 		goto err;
 
-	printf("Starting Parser...\n");
-	getobjcode(fp);
+	start(fp);
 
 	return 0;
 

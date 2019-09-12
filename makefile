@@ -9,10 +9,10 @@ HEADERS = -Iinclude
 EXEC = sigma16
 LIB = -lncurses
 $(EXEC): $(OBJ)
-	$(CC) $(CCFLAGS) $(HEADERS) -o $(EXEC) $(OBJ)
+	$(CC) $(CCFLAGS) $(HEADERS) -o $(EXEC) $(OBJ) $(LIB)
 
 $(OBJDIR)/%.o: %.c
-	$(CC) -c $(CCFLAGS) $(LIB)  $(HEADERS)  -o $@ $<
+	$(CC) -c $(CCFLAGS)  $(HEADERS)  -o $@ $< $(LIB)
 
 
 .PHONY: clean again
