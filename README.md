@@ -7,7 +7,11 @@ Sigma16 is a computer architecture built exclusively for research and teaching i
 Sigma16 utilises a word size of 16 bits and a register file of 16 registers _R0 - R15_ however _R0_ 
 consistently contains the value 0.
 
-This program will initially provide an emulator with future plans to provide a gdbtui style debugger
+## Current status
+
+This project currently has a working assembler, producing machine code for around 2/3 of the instruction set, namely RX & RRR instructions.
+
+Currently only standalone files are implemented hence no support for modules and linking
 
 ## Compatability
 
