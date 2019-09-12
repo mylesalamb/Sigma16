@@ -1,14 +1,19 @@
 #ifndef ASSEMBLER_GUARD
 #define ASSEMBLER_GUARD
 #include<stdint.h>
+#include<stdbool.h>
 #include"map.h"
 
 	typedef struct rxarg{
 		uint16_t reg;
 		uint16_t mem;
-		bool resolved;
+		bool resolved; //handle strange case where label is addr 0
 	} rxarg_t;
 
+	rxarg_t getrxargs(char * buffer, int left);
+
+	uint16_t getlit(char * buffer, int  cursor);
+	void errhandler(char * errstring);
 	int getnextreg(char * buffer, int * left);
 	uint16_t * getobjcode(FILE * fp);
 	int strhash(void * arg);
@@ -17,5 +22,4 @@
 	uint16_t getrrrargs(char * buffer,int left);
 	int isvalidid(char * str,int left,int right);
 	void strslice(char * src, char * dest, int left, int right);
-	static hashmap_t * opmapinit();
 #endif

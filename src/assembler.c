@@ -21,6 +21,10 @@ so we can retain the 'code as data' behaviour see (strange.asm.txt)
 #define isrrr(x) ( (0xf000 & x) <= 0xe000)
 #define isrx(x) ( (0xf000) & x == 0xf000 )
 
+static hashmap_t * opmapinit();
+
+int line = 0;
+
 /*
 parses a sigma16 asm file returning an array of
 16bit integers resolving references to labels
@@ -33,13 +37,9 @@ uint16_t * getobjcode(FILE * fp){
 
 	hashmap_t * codebook = opmapinit();
 	hashmap_t * labelresolver = hashmap_init(20,&strhash,&strcomp);
-
 	char * buffer = (char*)malloc(sizeof(char)*BUFFSIZE);
 	uint16_t * mem = (uint16_t*)malloc(sizeof(uint16_t)*MEMSIZE);
-	
 	char * op;
-	char * errstring;
-	int line = 0;
 	int ip = 0;
 
 	while(fgets(buffer,BUFFSIZE,fp) != NULL){
@@ -50,7 +50,6 @@ uint16_t * getobjcode(FILE * fp){
 
 		//blank or comment line
 		lcursor = getnexttoken(buffer,lcursor);
-		printf("%d\n",lcursor );
 		if(lcursor==-1)
 			continue;
 
@@ -59,18 +58,17 @@ uint16_t * getobjcode(FILE * fp){
 
 			rcursor = lcursor;
 
-			while( !isspace(buffer[rcursor] )){
+			while( !isspace(buffer[rcursor]))
 				rcursor++;
-			}
+			
 
 			if(!isvalidid(buffer,lcursor,rcursor)){
-				errstring = "Label is not valid";
-				goto err;
+				errhandler("Label is not valid");
 			}
 			
 			//store in our codebook to resolve references later
 		 	int len = rcursor - lcursor;
-			char * label = (char *)malloc(sizeof(char)*len+1);
+			char * label = (char *)malloc(sizeof(char)*(len+1));
 			strslice(buffer,label,lcursor,rcursor);
 			uint16_t * ref = (uint16_t *)malloc(sizeof(uint16_t));
 			*ref = ip;
@@ -86,26 +84,34 @@ uint16_t * getobjcode(FILE * fp){
 
 		rcursor = lcursor;
 
-		while(isalpha(buffer[rcursor++]))
-			;
+		while(isalpha(buffer[rcursor]))
+			rcursor++;
 
 		int len = rcursor - lcursor;
-		op = (char*)malloc(sizeof(char)*len);
+		op = (char*)malloc(sizeof(char)*(len+1));
 		
 
 		strslice(buffer,op,lcursor,rcursor);
-		uint16_t * opcode = (uint16_t*)hashmap_get(codebook,op);
-		if(opcode == NULL){
-			errstring = "instrction is not valid";
-			goto err;
+		
+		if(strcmp(op,"data") == 0){
+			lcursor = getnexttoken(buffer,rcursor);
+			mem[ip++] = getlit(buffer,lcursor);
+			continue;
+
 		}
+
+		uint16_t * opcode = (uint16_t*)hashmap_get(codebook,op);
+		
+		if(opcode == NULL){
+			errhandler("Instruction is not valid");
+		}
+		
 
 		uint16_t opval = *opcode;
 
 		lcursor = getnexttoken(buffer,rcursor);
 		if(lcursor==-1){
-			errstring = "No/bad operands";
-			goto err;
+			errhandler("No/Bad operands");
 
 		}
 
@@ -114,25 +120,20 @@ uint16_t * getobjcode(FILE * fp){
 		if(isrrr(*opcode)){
 			uint16_t args = getrrrargs(buffer,lcursor);
 			opval ^= args; 
-			printf("%.4x\n",opval );
 			mem[ip++] = opval;
 			}
 		else{
-			printf("instruction is rx i dont know what to do\n");
+			getrxargs(buffer,lcursor);
 		}
 
 
 
 	}
 
+	for(int i =0; i < ip;i++)
+		printf("%.4x\n",mem[i] );
+
 	return mem;
-
-
-
-	err:
-		fprintf(stderr, "(%d) ERR: %s\n%s",line,errstring,buffer);
-		exit(1);
-
 }
 
 
@@ -140,8 +141,10 @@ rxarg_t getrxargs(char * buffer, int left){
 	rxarg_t ret = {0x0000,0x0000,false};
 
 	int reg = getnextreg(buffer,&left);
-	ret.reg = ret.reg << 4
+	ret.reg = ret.reg << 4;	  
 	ret.reg ^= reg;
+
+	printf("%d\n",reg );
 
 	if(buffer[left] != ','){
 		printf("bad args\n");
@@ -154,16 +157,28 @@ rxarg_t getrxargs(char * buffer, int left){
 		right++;
 
 	if(buffer[right] == '\0'){
-		printf("bad args\n");
-		exit(0);
+		errhandler("Bad RX operands");
 	}
+	printf("%c\n",buffer[right] );
 
-	if(isvalidid(buffer,left,right))
+	if(buffer[left]=='$' || buffer[left]=='#' || isdigit(buffer[left])){
+		getlit(buffer,left);
+
+	}
+	else if(!isvalidid(buffer,left,right)){
+		errhandler("Invalid identifier in RX instruction");
+
+	}
+	//is valid identifier resolive label or add to resolution list
+	else{
+
+
+	}
 
 
 	
 
-	ret.reg = ret.reg << 4
+	 ret.reg = ret.reg << 4
 	return ret;
 
 }
@@ -195,9 +210,8 @@ exits if the register is not of the correct form
 */
 int getnextreg(char * buffer, int * left){
 
-	if(buffer[*left] != 'r' && buffer[*left] == 'R'){
-		printf("bad args in reg parser\n");
-		exit(0);
+	if(buffer[*left] != 'r' && buffer[*left] != 'R'){
+		errhandler("invalid operand form");
 	}
 
 	(*left)++; //skip r
@@ -213,17 +227,67 @@ int getnextreg(char * buffer, int * left){
 	if(isdigit(buffer[*left])){
 		reg *= 10;
 		reg += buffer[*left] - '0';
-		(*left++);
+		(*left)++;
 	}
 
 	if(reg > 15){
-			printf("bad args, not register number oob");
-			exit(0);
+		errhandler("Register out of bounds");
 	}
 
 	return reg;
 }
+/*
+utility for reading numeric literals in the form
+cursor is assumed to be pointing to the first character of
+the literal
+1234 : decimal
+#1010101 : binary
+$ffff : hex
 
+*/
+uint16_t getlit(char * buffer, int cursor){
+	int base;
+	uint16_t ret=0;
+	long check=0;
+	int right;
+
+	if(isdigit(buffer[cursor])){
+		base = 10;
+		right = cursor;
+		while(isdigit(buffer[right]))
+			right++;
+	}
+	else if(buffer[cursor] == '$'){
+		base=16;
+		(cursor)++;
+		right=cursor;
+
+		while(isxdigit(buffer[right]))
+			right++;
+
+	}
+	else if(buffer[cursor]== '#'){
+		base = 2;
+		(cursor++);
+		right = cursor;
+		while(buffer[right] == '1' || buffer[right] == '0')
+			right++;
+	}
+	else{
+		errhandler("Unrecognised literal");
+	}
+
+		char str[right-cursor];
+		strslice(buffer,str,cursor,right);
+		check = strtol(str,NULL,base);
+
+	if(check > UINT16_MAX)
+			errhandler("Literal value overflow");
+	ret = check;
+
+	return ret;
+
+}
 
 /*
 Utility to trim of whitespace from between parts of line
@@ -244,13 +308,15 @@ int getnexttoken(char * str, int i){
 Copies characters from src to dest within the range left - right
 same behaviour as python
 dest = src[left:right]
+
+dest should be right-left+1 chars long for null terminating
 */
 void strslice(char * src, char * dest, int left, int right){
 
 	for(int i = left,j=0; i < right; i++,j++)
 		dest[j] = src[i];
 
-	dest[right-left-1] =  '\0';
+	dest[right-left] =  '\0';
 
 
 }
@@ -278,6 +344,11 @@ int isvalidid(char * str,int left,int right){
 	return 1;
 }
 
+void errhandler(char * errstring){
+	fprintf(stderr, "ERR(%d):%s\n",line,errstring);
+	exit(0);
+}
+
 /*
 simple string hashing function
 */
@@ -285,7 +356,6 @@ int strhash(void * arg){
 	char * c = (char *)arg;
 	int sum = 0;
 	while( (*c) != '\0'){
-		
 		sum += *c;
 		c++;
 	}
