@@ -123,7 +123,15 @@ uint16_t * getobjcode(FILE * fp){
 			mem[ip++] = opval;
 			}
 		else{
-			getrxargs(buffer,lcursor);
+			rxarg_t args = getrxargs(buffer,lcursor);
+			if(!args.resolved){
+				//add to be resolved later
+
+			}
+			else{
+				mem[ip++] = args.reg ^ opval; //opcode and registers
+				mem[ip++] = args.mem; //memory address
+			}
 		}
 
 
@@ -161,24 +169,23 @@ rxarg_t getrxargs(char * buffer, int left){
 	}
 	printf("%c\n",buffer[right] );
 
-	if(buffer[left]=='$' || buffer[left]=='#' || isdigit(buffer[left])){
-		getlit(buffer,left);
+	if(isvalidid(buffer,left,right)){
 
 	}
-	else if(!isvalidid(buffer,left,right)){
-		errhandler("Invalid identifier in RX instruction");
-
-	}
-	//is valid identifier resolive label or add to resolution list
 	else{
-
-
+		ret.mem = getlit(buffer,left);
+		ret.resolved = true;
 	}
 
+	left = ++right;
 
-	
+	//shift into the form 0(ra)(rb)0 mem
 
-	 ret.reg = ret.reg << 4
+	reg = getnextreg(buffer,&left);
+	ret.reg = ret.reg << 4;	  
+	ret.reg ^= reg;
+	ret.reg = ret.reg << 4;
+
 	return ret;
 
 }
