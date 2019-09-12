@@ -1,7 +1,7 @@
 /*
 Author: Myles Lamb
 
-Parser related utilities for the sigma16 emulator
+Assembler related utilities for the sigma16 emulator
 translates asm into opcodes for easier manipulation by the emulator
 so we can retain the 'code as data' behaviour see (strange.asm.txt) 
 */
@@ -25,6 +25,15 @@ static hashmap_t * opmapinit();
 
 int line = 0;
 
+//used at the end of assembly to resolve references to labels
+typedef struct unresolved_label_node{
+	char * label;
+	uint16_t instruction;
+	struct unresolved_label_node * next;
+} unlabel_t ;
+
+
+
 /*
 parses a sigma16 asm file returning an array of
 16bit integers resolving references to labels
@@ -35,6 +44,7 @@ returns: a 2^16 array of 16bit opcodes corresponding to the assembler input
 */
 uint16_t * getobjcode(FILE * fp){
 
+	unlabel_t * head = NULL;
 	hashmap_t * codebook = opmapinit();
 	hashmap_t * labelresolver = hashmap_init(20,&strhash,&strcomp);
 	char * buffer = (char*)malloc(sizeof(char)*BUFFSIZE);
@@ -118,73 +128,128 @@ uint16_t * getobjcode(FILE * fp){
 		//get args and add them into the 16bit word
 
 		if(isrrr(*opcode)){
-			uint16_t args = getrrrargs(buffer,lcursor);
+			uint16_t args = getrrrargs(buffer,&lcursor);
 			opval ^= args; 
 			mem[ip++] = opval;
-			}
-		else{
-			rxarg_t args = getrxargs(buffer,lcursor);
-			if(!args.resolved){
-				//add to be resolved later
+
+			
 
 			}
+		else{
+			rxarg_t args = getrxargs(buffer,&lcursor);
+			mem[ip++] = args.reg ^ opval;
+			if(args.label != NULL ){
+
+				//init new node for linked list
+				unlabel_t * ref = (unlabel_t *)malloc(sizeof(unlabel_t));
+				ref->label = args.label;
+				ref->instruction = ip++; //2 words so instruction is one after ops
+				ref->next = head;
+				head = ref;
+			}
 			else{
-				mem[ip++] = args.reg ^ opval; //opcode and registers
+				//opcode and registers
 				mem[ip++] = args.mem; //memory address
 			}
 		}
+
+		//check if there is anything left on the line
+		lcursor = getnexttoken(buffer,lcursor);
+			if(lcursor!=-1)
+				errhandler("Unparseable line after instruction,"
+				" did you mean to comment this?");
 
 
 
 	}
 
+
+	//label resolution
+
+	unlabel_t * next;
+	printf("got here\n");
+
+	while(head!=NULL){
+
+		uint16_t * ref = (uint16_t *)hashmap_get(labelresolver,head->label);
+		if(ref == NULL)
+			errhandler("could not resolve a label ");
+
+		mem[head->instruction] = *ref;
+
+		next = head->next;
+
+		free(head->label);
+		free(head);
+
+		head=next;
+
+	}
+
+
+	//print the parsed instructions for debugging purposes
 	for(int i =0; i < ip;i++)
 		printf("%.4x\n",mem[i] );
 
 	return mem;
 }
 
+/*
+resolves the operands in a rx instruction returning whether any
+labels used were resolved or not
 
-rxarg_t getrxargs(char * buffer, int left){
-	rxarg_t ret = {0x0000,0x0000,false};
+moves the cursor as far as it succesfully parses, exits the program on failure
 
-	int reg = getnextreg(buffer,&left);
-	ret.reg = ret.reg << 4;	  
-	ret.reg ^= reg;
+*/
+rxarg_t getrxargs(char * buffer, int * left){
+	rxarg_t ret = {0x0000,0x0000,NULL};
 
-	printf("%d\n",reg );
+	uint16_t registers = 0x0000;
+	uint16_t memory = 0x0000;
 
-	if(buffer[left] != ','){
+	//shift and xor into correct form
+	int reg = getnextreg(buffer,left);
+	registers = registers << 4;	  
+	registers ^= reg;
+
+	if(buffer[*left] != ','){
 		printf("bad args\n");
 		exit(0);
 	}
 
-	left++;
-	int right = left;
+	(*left)++;
+	int right = *left;
 	while(buffer[right] != '[' && buffer[right] != '\0')
 		right++;
 
 	if(buffer[right] == '\0'){
 		errhandler("Bad RX operands");
 	}
-	printf("%c\n",buffer[right] );
 
-	if(isvalidid(buffer,left,right)){
+	if(isvalidid(buffer,*left,right)){
+		char * id = (char *)malloc(sizeof(char)*(right-(*left) + 1 ));
+		strslice(buffer,id,*left,right);
+		printf("%s\n",id );
+		ret.label = id;
+
 
 	}
 	else{
-		ret.mem = getlit(buffer,left);
-		ret.resolved = true;
+		printf("not label\n");
+		memory = getlit(buffer,*left);
+		//ret.resolved = true;
 	}
 
-	left = ++right;
+	*left = ++right;
 
 	//shift into the form 0(ra)(rb)0 mem
 
-	reg = getnextreg(buffer,&left);
-	ret.reg = ret.reg << 4;	  
-	ret.reg ^= reg;
-	ret.reg = ret.reg << 4;
+	reg = getnextreg(buffer,left);
+	registers = registers << 4;	  
+	registers ^= reg;
+	registers = registers << 4;
+
+	(*left)++ ; // skip closing bracket of rx instruction
 
 	return ret;
 
@@ -192,16 +257,16 @@ rxarg_t getrxargs(char * buffer, int left){
 
 
 
-uint16_t getrrrargs(char * buffer,int left){
+uint16_t getrrrargs(char * buffer,int * left){
 
 	uint16_t args = 0;
 
 	for(int i = 0; i < 3; i++){
 		
-		int reg = getnextreg(buffer,&left);
+		int reg = getnextreg(buffer,left);
 		args = args << 4;
 		args = args ^ reg;
-		left++; //skip comma
+		(*left)++; //skip comma
 	}
 
 	return args;
@@ -218,6 +283,7 @@ exits if the register is not of the correct form
 int getnextreg(char * buffer, int * left){
 
 	if(buffer[*left] != 'r' && buffer[*left] != 'R'){
+		printf("%c\n",buffer[*left] );
 		errhandler("invalid operand form");
 	}
 
